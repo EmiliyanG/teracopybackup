@@ -5,16 +5,16 @@ open System.Xml.Linq
 open System.Text.RegularExpressions
 open System.Diagnostics
 
-type xFile = {extension:string; source:string; destination:string}
-type xClient = {name:string ; filesToBackup: xFile seq}
+type xFile = {extension:string Option; source:string Option; destination:string Option}
+type xClient = {name:string Option; filesToBackup: xFile seq}
 
 let getTime() =  ( System.DateTime.Now.ToString("dd-MM-yyyy HH:mm:ss")) + " > " 
 
 let xn s = XName.Get(s) 
 let xnAttribute (f:XElement) attr = 
     match f.Attribute(xn attr) with
-    | null -> ""
-    | x -> x.Value
+    | null -> None
+    | x -> Some x.Value
 
 let createXFile (f:XElement) = 
     {extension = xnAttribute f "extension"; 
@@ -123,21 +123,30 @@ let moveFile teraCopyExe sourceFile destination=
 
 //process a single file for a client
 let processFile teraCopyExe (f:xFile)  =
+    match f.extension, f.source, f.destination with 
+    | Some ext, Some src, Some dest -> 
+        if not (Directory.Exists dest) 
+            then 
+                printfn "%s creating destination directory %s" (getTime()) dest
+                Directory.CreateDirectory dest |> ignore
     
-    if not (Directory.Exists f.destination) 
-        then 
-            printfn "%s creating destination directory %s" (getTime()) f.destination
-            Directory.CreateDirectory f.destination |> ignore
-    
-    match (getMostRecentFile f.source f.extension) with
-    |Some x -> printfn "%s The most recently modified file is %s " (getTime()) (Path.GetFileName(x.filePath))
-               moveFile teraCopyExe x.filePath f.destination
-    |None -> printfn "%s no files found for directory %s" (getTime()) f.source
-   
+        match (getMostRecentFile src ext) with
+        |Some x -> printfn "%s The most recently modified file is %s " (getTime()) (Path.GetFileName(x.filePath))
+                   moveFile teraCopyExe x.filePath dest
+        |None -> printfn "%s no files found for directory %s" (getTime()) src
+    | _, _, _-> printfn "%s file could not be processed due to invalid format in the XML file" (getTime())
+
 //process all files for client
 let processClient teraCopyExe client =
-    printfn "%s started backing up files for client %s" (getTime()) client.name
-    client.filesToBackup |> Seq.iter (processFile teraCopyExe)
+    match client.name with
+    //check if name attribute was specified
+    | Some n ->
+        printfn "%s started backing up files for client %s" (getTime()) n
+        //check if there are no files against the specified client
+        if Seq.isEmpty client.filesToBackup then printfn "%s no files found for client %s" (getTime()) n
+        else client.filesToBackup |> Seq.iter (processFile teraCopyExe)
+    
+    | None ->  printfn "%s could not process client due to invalid format > No name attribute found" (getTime())
 
 //process all clients
 let processClients teraCopyExe clients =
@@ -157,20 +166,10 @@ type CommandLineOptions = {teraCopy: string option; xmlPath: string option; }
 
 let defaultOptions = {teraCopy = None;xmlPath = None;}
 
-let (|ParseRegex|_|) rgx str = 
+let testRegex rgx str= 
     let m = Regex(rgx).Match(str)
-    if m.Success then Some m.Value
-    else None
-
-let TestXmlPath str =
-   match str with
-   | ParseRegex pathRegex str -> true
-   | _ -> false
-
-let TestTeraCopyPath str =
-   match str with
-   | ParseRegex teraCopyRegex str -> true
-   | _ -> false
+    if m.Success then true
+    else false
 
 let rec parseCommandLine optionsSoFar args  = 
     match args with 
@@ -180,7 +179,7 @@ let rec parseCommandLine optionsSoFar args  =
     // match teracopy flag
     | "--teraCopy"::xs -> 
         match xs with 
-        | x::xss when TestTeraCopyPath x -> 
+        | x::xss when testRegex pathRegex x -> 
             let newOptionsSoFar = { optionsSoFar with teraCopy=Some x}
             parseCommandLine newOptionsSoFar xss  
         | _ ->
@@ -190,7 +189,7 @@ let rec parseCommandLine optionsSoFar args  =
     // match subdirectories flag
     | "--xmlPath"::xs -> 
         match xs with
-        | x::xss when TestXmlPath x ->
+        | x::xss when testRegex teraCopyRegex x ->
             let newOptionsSoFar = { optionsSoFar with xmlPath=Some x}
             parseCommandLine newOptionsSoFar xss  
         | _ ->
