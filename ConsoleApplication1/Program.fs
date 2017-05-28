@@ -161,15 +161,24 @@ let processClients teraCopyExe clients =
 
 let pathRegex = "^(?:[\\w]\\:|\\\\)(\\\\[a-zA-Z_\\-\\s0-9\\.\\$]+)+\.(xml)$"
 let teraCopyRegex = "^(?:[\\w]\\:|\\\\)(\\\\[a-zA-Z_\\-\\s0-9\\.\\$]+)+\.(exe)$"
+let deleteFilesRegex = "^([0-9]+)|((all){1})$"
+type CommandLineOptions = {teraCopy: string option; xmlPath: string option; deleteFiles: string option}
 
-type CommandLineOptions = {teraCopy: string option; xmlPath: string option; }
+let defaultOptions = {teraCopy = None;xmlPath = None; deleteFiles = None}
 
-let defaultOptions = {teraCopy = None;xmlPath = None;}
 
-let testRegex rgx str= 
-    let m = Regex(rgx).Match(str)
-    if m.Success then true
-    else false
+let (|ParseRegex|_|) regex str =
+   let m = Regex(regex).Match(str)
+   if m.Success
+   then Some str
+   else None
+
+let (|Int|_|) str =
+   match System.Int32.TryParse(str) with
+   | (true,int) -> Some(int)
+   | _ -> None
+
+
 
 let rec parseCommandLine optionsSoFar args  = 
     match args with 
@@ -179,7 +188,7 @@ let rec parseCommandLine optionsSoFar args  =
     // match teracopy flag
     | "--teraCopy"::xs -> 
         match xs with 
-        | x::xss when testRegex pathRegex x -> 
+        | ParseRegex pathRegex x::xss -> 
             let newOptionsSoFar = { optionsSoFar with teraCopy=Some x}
             parseCommandLine newOptionsSoFar xss  
         | _ ->
@@ -189,12 +198,20 @@ let rec parseCommandLine optionsSoFar args  =
     // match subdirectories flag
     | "--xmlPath"::xs -> 
         match xs with
-        | x::xss when testRegex teraCopyRegex x ->
+        | ParseRegex teraCopyRegex x::xss ->
             let newOptionsSoFar = { optionsSoFar with xmlPath=Some x}
             parseCommandLine newOptionsSoFar xss  
         | _ ->
             eprintfn "--xmlPath needs a second argument"
             parseCommandLine optionsSoFar xs  
+    | "--deleteFiles"::xs ->
+        match xs with
+        |ParseRegex deleteFilesRegex x::xss ->
+            let newOptionsSoFar = { optionsSoFar with deleteFiles=Some x}
+            parseCommandLine newOptionsSoFar xss
+        | _ -> 
+            eprintfn "--deleteFiles needs a second argument"
+            parseCommandLine optionsSoFar xs 
 
     // handle unrecognized option and keep looping
     | x::xs -> 
