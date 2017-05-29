@@ -1,9 +1,7 @@
 ﻿namespace myApp
 
 open System
-open System.IO
-open System.Xml
-open System.Xml.Linq
+
 
 
 type xFile = {extension:string Option; source:string Option; destination:string Option}
@@ -12,6 +10,9 @@ type xClient = {name:string Option; filesToBackup: xFile seq}
 //contains all functions used to convert the clients.xml file to some useful data structures to work with
 module ExtractClientsXML =
     
+    open System.Xml
+    open System.Xml.Linq
+
     let xn s = XName.Get(s)
 
     let xnAttribute (f:XElement) attr = 
@@ -43,113 +44,86 @@ module ExtractClientsXML =
 
 
 
-module FileOperations = 
-    type myFile = {filePath:string; dateCreated:DateTime}
+
+module ParseCommandLineArgs = 
+   
+    open System.Text.RegularExpressions
+
+    let pathRegex = "^(?:[\\w]\\:|\\\\)(\\\\[a-zA-Z_\\-\\s0-9\\.\\$]+)+\.(xml)$"
+    let teraCopyRegex = "^(?:[\\w]\\:|\\\\)(\\\\[a-zA-Z_\\-\\s0-9\\.\\$]+)+\.(exe)$"
+    let deleteFilesRegex = "^([0-9]+)|((all){1})$"
+    type CommandLineOptions = {teraCopy: string option; xmlPath: string option; deleteFiles: string option}
+
+    let defaultOptions = {teraCopy = None;xmlPath = None; deleteFiles = None}
     
-    //function to return the current date time 
-    let getTime() =  ( System.DateTime.Now.ToString("dd-MM-yyyy HH:mm:ss")) + " > " 
+    let (|ParseRegex|_|) regex str =
+       let m = Regex(regex).Match(str)
+       if m.Success
+       then Some str
+       else None
+
     
-    //get IO.File last date modified
-    let getDateModified filePath =
-        let myFile = System.IO.FileInfo(filePath)
-        myFile.LastWriteTime
+    let rec parseCommandLine optionsSoFar args  = 
+        match args with 
+        // empty list means we're done.
+        | [] -> optionsSoFar  
 
-    //get all files within given directory with the specified extension
-    let getfilesForDirectory dir ext = 
-            try
-                Some ((System.IO.Directory.GetFiles(dir, "*."+ ext)) 
-                     |> Seq.map (fun x -> {filePath=x; dateCreated=getDateModified x}))
-            with 
-                | :? System.IO.FileNotFoundException -> None
-                | :? System.IO.DirectoryNotFoundException -> None
+        // match teracopy flag
+        | "--teraCopy"::xs -> 
+            match xs with 
+            | (ParseRegex teraCopyRegex x)::xss -> 
+                let newOptionsSoFar = { optionsSoFar with teraCopy=Some x}
+                parseCommandLine newOptionsSoFar xss  
+            | _ ->
+                eprintfn "--teraCopy needs a second argument" 
+                parseCommandLine optionsSoFar xs  
+
+        // match subdirectories flag
+        | "--xmlPath"::xs -> 
+            match xs with
+            | (ParseRegex pathRegex x)::xss ->
+                let newOptionsSoFar = { optionsSoFar with xmlPath=Some x}
+                parseCommandLine newOptionsSoFar xss  
+            | _ ->
+                eprintfn "--xmlPath needs a second argument"
+                parseCommandLine optionsSoFar xs  
+        | "--deleteFiles"::xs ->
+            match xs with
+            |(ParseRegex deleteFilesRegex x)::xss ->
+                let newOptionsSoFar = { optionsSoFar with deleteFiles=Some x}
+                parseCommandLine newOptionsSoFar xss
+            | _ -> 
+                eprintfn "--deleteFiles needs a second argument"
+                parseCommandLine optionsSoFar xs 
+
+        // handle unrecognized option and keep looping
+        | x::xs -> 
+            eprintfn "Option '%s' is not recognized" x
+            parseCommandLine optionsSoFar xs  
+
+module Mail =
+
+    open System
+    open System.Net.Mail
+    open System.Net
     
-    let deleteFilesInDirectory files = 
-        files |> fun x -> System.IO.File.Delete(x.filePath)
+    let sendEmailTest smtp msg= 
+        printfn "sending email"
+        let fromAddress = new MailAddress("emiliyang@illycorp.com", "From Name")
+        let toAddress = new MailAddress("grigorov.emiliyan@gmail.com", "To Name")
+        //let fromPassword = "password"
+        let subject = "Backup process finished with errors"
         
+
+        let smtp = new SmtpClient(smtp)
+        smtp.Port <- 587
+        smtp.EnableSsl <- true
+        smtp.DeliveryMethod <- SmtpDeliveryMethod.Network
+        smtp.UseDefaultCredentials <- false
+        //smtp.Credentials <- new NetworkCredential(fromAddress.Address, fromPassword)
     
-    //get most recently modified file for the specified extension in the given directory 
-    let getMostRecentFile dir ext =       
-        match getfilesForDirectory dir ext  with 
-        | Some x -> 
-           let allFiles = 
-               x |> Seq.sortByDescending(fun x-> x.dateCreated)
-           if Seq.isEmpty allFiles then None
-           else Some (Seq.head allFiles)
-
-        | None -> printfn "Directory %s does not exist" dir
-                  None
-    
-    //copy file from source to destination Directory using TeraCopy
-    let copyFile teraCopyExe sourceFile destination= 
-
-        match File.Exists teraCopyExe, File.Exists sourceFile  with 
-        |true, true ->
-        
-            //skip file if already exists in the destination folder
-            let command = "Copy \""+sourceFile+"\" \""+destination+"\" /SkipAll"
-        
-            printfn "%s started copying file \"%s\" to \"%s\"" (getTime()) sourceFile destination
-        
-            //command line > TeraCopy.exe Copy <sourceFile> <destination folder> /SkipAll
-            let myProcess = System.Diagnostics.Process.Start(teraCopyExe,command)
-            //wait for 2 hours
-            myProcess.WaitForExit(7200000) |> ignore
-            //if the process is still running terminate it
-            match myProcess.HasExited with
-            | true -> printfn "%s file copied successfully " (getTime()) 
-            | false -> myProcess.Kill()
-        
-
-            if myProcess.ExitCode <> 0 then 
-                printfn "%s process had to be terminated exitCode is %i " (getTime())  myProcess.ExitCode
-            
-        | true, false -> printfn "%s Tried copying file %s but the file does not exist" (getTime()) sourceFile
-        |false, _ -> printfn "%s Tried copying file %s but the TeraCopy.exe path \"%s\" is invalid" (getTime()) sourceFile teraCopyExe
-
-    let (|Int|_|) str =
-       match System.Int32.TryParse(str) with
-       | (true,int) -> Some(int)
-       | _ -> None
-
-
-    let deletePreviousFiles deleteFiles dir ext =
-        match deleteFiles with
-        //delete only files older than x hours
-        | Some (Int x) -> 
-            printfn "%s deleting files older than %i hours for directory %s" (getTime()) x dir
-            match getfilesForDirectory dir ext with
-            | Some files -> 
-                files 
-                |> Seq.filter (fun y -> 
-                    let diff = System.DateTime.Now - y.dateCreated;
-                    diff.TotalHours > float x)
-                |> Seq.iter (fun x -> System.IO.File.Delete(x.filePath))
-            | None -> printfn "%s there were no files older than %i hours" (getTime()) x
-        //delete all files
-        | Some "all" -> 
-            printfn "%s deleting all files for directory %s" (getTime()) dir
-            match getfilesForDirectory dir ext with
-            | Some files -> 
-                files |> Seq.iter (fun x -> System.IO.File.Delete(x.filePath))
-            | None -> printfn "%s no files with matching extension found" (getTime())
-        //no command provided to delete any files
-        | _ -> printfn "%s Will not delete any files as no delete argument was specified" (getTime())
-
-    //process a single file for a client
-    let processFile teraCopyExe deleteFiles (f:xFile) =
-        //deletePreviousFiles deleteFiles
-
-        match f.extension, f.source, f.destination with 
-        | Some ext, Some src, Some dest -> 
-            if not (Directory.Exists dest) 
-                then 
-                    printfn "%s creating destination directory %s" (getTime()) dest
-                    Directory.CreateDirectory dest |> ignore
-            
-            deletePreviousFiles deleteFiles dest ext
-
-            match (getMostRecentFile src ext) with
-            |Some x -> printfn "%s The most recently modified file is %s " (getTime()) (Path.GetFileName(x.filePath))
-                       copyFile teraCopyExe x.filePath dest
-            |None -> printfn "%s no files found for directory %s" (getTime()) src
-        | _, _, _-> printfn "%s file could not be processed due to invalid format in the XML file" (getTime())
+        let message = new MailMessage(fromAddress, toAddress)
+        message.Subject <-subject
+        message.Body<-msg
+        message.IsBodyHtml <- true
+        smtp.Send(message);
