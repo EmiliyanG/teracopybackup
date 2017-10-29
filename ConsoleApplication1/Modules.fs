@@ -1,15 +1,23 @@
 ﻿namespace myApp
 
-open System
-
-
 
 type xFile = {extension:string Option; source:string Option; destination:string Option}
 type xClient = {name:string Option; filesToBackup: xFile seq}
-    
+type xEmail = {smtpServer:string Option; smtpServerPort:string Option;fromEmail:string Option; fromEmailPassword:string Option;}
+
+
+module Regex = 
+    open System.Text.RegularExpressions
+
+    let (|ParseRegex|_|) regex str =
+        let m = Regex(regex).Match(str)
+        if m.Success
+        then Some str
+        else None
+
 //contains all functions used to convert the clients.xml file to some useful data structures to work with
 module ExtractClientsXML =
-    
+    open Regex
     open System.Xml
     open System.Xml.Linq
 
@@ -19,6 +27,17 @@ module ExtractClientsXML =
         match f.Attribute(xn attr) with
         | null -> None
         | x -> Some x.Value
+    
+    let extractEmailFromTag (email:XElement)=
+        {smtpServer= xnAttribute email "smtpServer";
+        smtpServerPort= (match (xnAttribute email "smtpServerPort") with
+                            | Some p -> 
+                                match p with
+                                | ParseRegex "^[0-9]{2,4}$" p -> Some p //port can be int only
+                                | _ -> None
+                            | None -> None);
+        fromEmail= xnAttribute email "fromEmail";
+        fromEmailPassword= xnAttribute email "fromEmailPassword"}
 
     let createXFile (f:XElement) = 
         {extension = xnAttribute f "extension"; 
@@ -29,12 +48,21 @@ module ExtractClientsXML =
         {name = (xnAttribute client "name");
         filesToBackup = ( (client.Elements(xn "file")) |> Seq.map createXFile)}
 
-    let extractedClients (path:string) =
-        let doc = 
-            try
-                Some (XDocument.Load(path))
-            with 
-                | :? System.IO.FileNotFoundException -> None
+    let loadXDocument (path:string)=
+        try
+            let doc = Some (XDocument.Load(path))
+            
+            match doc with
+            |Some d -> 
+                match (d.Element(xn "root")) with // the root element is called root
+                | null -> None
+                | x -> Some x
+            |None -> None
+        with 
+            | :? System.IO.FileNotFoundException -> None
+    
+    let extractedClients path =
+        let doc = loadXDocument(path)
         match doc with 
         | Some d ->
             d.Element(xn "clients").Elements(xn "client") 
@@ -42,12 +70,21 @@ module ExtractClientsXML =
         | None -> printfn "unable to find the xml file" 
                   Seq.empty
 
-
+    let loadConfigs path=
+        let doc = loadXDocument(path)
+        match doc with
+        |Some d -> 
+            match d.Element(xn "config") with
+            | null -> None //file found but no config tag exists
+            | c -> 
+                match c.Element(xn "email") with
+                | null -> None //config tag found but no child email tag exists
+                | email -> Some (extractEmailFromTag email)  
+        |none -> None //file not found
 
 
 module ParseCommandLineArgs = 
-   
-    open System.Text.RegularExpressions
+    open Regex
 
     let pathRegex = "^(?:[\\w]\\:|\\\\)(\\\\[a-zA-Z_\\-\\s0-9\\.\\$]+)+\.(xml)$"
     let teraCopyRegex = "^(?:[\\w]\\:|\\\\)(\\\\[a-zA-Z_\\-\\s0-9\\.\\$]+)+\.(exe)$"
@@ -55,13 +92,6 @@ module ParseCommandLineArgs =
     type CommandLineOptions = {teraCopy: string option; xmlPath: string option; deleteFiles: string option}
 
     let defaultOptions = {teraCopy = None;xmlPath = None; deleteFiles = None}
-    
-    let (|ParseRegex|_|) regex str =
-       let m = Regex(regex).Match(str)
-       if m.Success
-       then Some str
-       else None
-
     
     let rec parseCommandLine optionsSoFar args  = 
         match args with 
@@ -106,24 +136,29 @@ module Mail =
     open System
     open System.Net.Mail
     open System.Net
-    
-    let sendEmailTest smtp msg= 
+    let fromEmailAddress = "backups@illycorp.com" 
+
+    let sendEmail smtpServer msg= 
         printfn "sending email"
-        let fromAddress = new MailAddress("emiliyang@illycorp.com", "From Name")
-        let toAddress = new MailAddress("grigorov.emiliyan@gmail.com", "To Name")
-        //let fromPassword = "password"
+        let toAddress = new MailAddress("grigorov.emiliyan@gmail.com")
+        let fromPassword = ""
         let subject = "Backup process finished with errors"
         
 
-        let smtp = new SmtpClient(smtp)
-        smtp.Port <- 587
-        smtp.EnableSsl <- true
-        smtp.DeliveryMethod <- SmtpDeliveryMethod.Network
-        smtp.UseDefaultCredentials <- false
+        let smtp = new SmtpClient(smtpServer)
+        smtp.Port <- 25
+        
+        //smtp.DeliveryMethod <- SmtpDeliveryMethod.Network
+        smtp.UseDefaultCredentials <- true
+        //smtp.EnableSsl <- true
+        //smtp.Credentials <- basicCredential
         //smtp.Credentials <- new NetworkCredential(fromAddress.Address, fromPassword)
     
-        let message = new MailMessage(fromAddress, toAddress)
+        let message = new MailMessage(new MailAddress(fromEmailAddress), toAddress)
         message.Subject <-subject
         message.Body<-msg
         message.IsBodyHtml <- true
         smtp.Send(message);
+    
+    let testEmailSentSuccessfully toEmail=
+        printfn "about to send test email to recepient: %s" toEmail

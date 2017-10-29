@@ -176,25 +176,43 @@ let emailErrors (errorsList:List<String>) =
             "</table></tbody>"+
             "<br /><p>Please fix this issues.</p>"
 
-        sendEmailTest "smtp.gmail.com" msg
+        sendEmail "localhost" msg
     
 
 [<EntryPoint>]
-let main argv = 
+let main argv =
+   //type CommandLineOptions = {teraCopy: string option; xmlPath: string option; deleteFiles: string option}
     let m =
         match Array.toList argv with
         | [] -> defaultOptions
         | [x] -> defaultOptions
         | xs -> xs |> parseCommandLine defaultOptions 
 
-    match m.xmlPath, m.teraCopy with
-    | Some x, Some y -> 
-        let clients = extractedClients x 
-        processClients y m.deleteFiles clients
-        emailErrors errorsList
-        //sendEmailTest "smtp.gmail.com" msg
-    | _ , _ -> printfn "no appropriate params provided"
+    match m.teraCopy with
+    |Some x ->
+        match m.xmlPath with
+        |Some p -> 
+            printfn "teracopy path: %s ; xmlPath: %s" x p
+            match (loadConfigs p) with
+            | Some configs -> 
+                match configs.smtpServer, configs.smtpServerPort with
+                | Some smtp, Some port -> printfn "smtpServer: %s; smtpServerPort %s" smtp port
+                | Some smtp, none -> printfn "no port provided for smtpServer: %s" smtp
+                | _,_ -> printfn "no smtp server provided. Attempting localhost"
+            | None -> printfn "no configs found"
+        | _ -> printfn "no xmlPath provided"
+    | _ -> printfn "no teraCopy path provided"
+    
+    
 
+    //match m.xmlPath, m.teraCopy with
+    //| Some x, Some y -> 
+    //    let clients = extractedClients x 
+    //    processClients y m.deleteFiles clients
+    //    emailErrors errorsList
+    //    //sendEmailTest "smtp.gmail.com" msg
+    //| _ , _ -> printfn "no appropriate params provided"
 
+    //sendEmailTest "80.175.22.70" "test email"
     
     0 // return an integer exit code 
