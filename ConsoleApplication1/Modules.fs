@@ -3,7 +3,7 @@
 
 type xFile = {extension:string Option; source:string Option; destination:string Option}
 type xClient = {name:string Option; filesToBackup: xFile seq}
-type xEmail = {smtpServer:string Option; smtpServerPort:string Option;fromEmail:string Option; fromEmailPassword:string Option;}
+type xEmail = {smtpServer:string Option; smtpServerPort:int Option;fromEmail:string Option; fromEmailPassword:string Option; toEmail:string Option }
 
 
 module Regex = 
@@ -28,16 +28,18 @@ module ExtractClientsXML =
         | null -> None
         | x -> Some x.Value
     
-    let extractEmailFromTag (email:XElement)=
+    let extractEmailConfigsFromTag (email:XElement)=
         {smtpServer= xnAttribute email "smtpServer";
         smtpServerPort= (match (xnAttribute email "smtpServerPort") with
                             | Some p -> 
                                 match p with
-                                | ParseRegex "^[0-9]{2,4}$" p -> Some p //port can be int only
+                                | ParseRegex "^[0-9]{2,4}$" p -> Some (p |> int)  //port can be int only
                                 | _ -> None
                             | None -> None);
         fromEmail= xnAttribute email "fromEmail";
-        fromEmailPassword= xnAttribute email "fromEmailPassword"}
+        fromEmailPassword= xnAttribute email "fromEmailPassword";
+        toEmail= xnAttribute email "toEmail"
+        }
 
     let createXFile (f:XElement) = 
         {extension = xnAttribute f "extension"; 
@@ -79,7 +81,7 @@ module ExtractClientsXML =
             | c -> 
                 match c.Element(xn "email") with
                 | null -> None //config tag found but no child email tag exists
-                | email -> Some (extractEmailFromTag email)  
+                | email -> Some (extractEmailConfigsFromTag email)  
         |none -> None //file not found
 
 
@@ -132,33 +134,41 @@ module ParseCommandLineArgs =
             parseCommandLine optionsSoFar xs  
 
 module Mail =
-
     open System
     open System.Net.Mail
     open System.Net
-    let fromEmailAddress = "backups@illycorp.com" 
 
-    let sendEmail smtpServer msg= 
-        printfn "sending email"
-        let toAddress = new MailAddress("grigorov.emiliyan@gmail.com")
-        let fromPassword = ""
-        let subject = "Backup process finished with errors"
+    let choose (v1, v2)=
+        match v1 with
+        | Some v -> v
+        | None -> v2
+    let sendEmail (mailSettings:xEmail) msg= 
         
+        match mailSettings.smtpServer, mailSettings.toEmail with
+        | Some smtp, Some e -> 
+            let smtp = new SmtpClient(smtp)
+            smtp.Port <- choose(mailSettings.smtpServerPort,25)
+            smtp.DeliveryMethod <- SmtpDeliveryMethod.Network
 
-        let smtp = new SmtpClient(smtpServer)
-        smtp.Port <- 25
+            match mailSettings.fromEmail, mailSettings.fromEmailPassword with
+            | Some fe, Some p -> 
+                smtp.EnableSsl <- true 
+                smtp.Credentials <- new NetworkCredential(fe, p)
+                
+            | _,_ -> smtp.UseDefaultCredentials <- true
+            
+            let message = new MailMessage(new MailAddress(
+                                            choose(mailSettings.fromEmail,"backups@mail.com")//from
+                                          ), 
+                                          new MailAddress(e))//to 
+            message.Subject <-"Backup process finished with errors"
+            message.Body<-msg
+            message.IsBodyHtml <- true
+            smtp.Send(message);
+            true
+        | _,_-> false
+
         
-        //smtp.DeliveryMethod <- SmtpDeliveryMethod.Network
-        smtp.UseDefaultCredentials <- true
-        //smtp.EnableSsl <- true
-        //smtp.Credentials <- basicCredential
-        //smtp.Credentials <- new NetworkCredential(fromAddress.Address, fromPassword)
-    
-        let message = new MailMessage(new MailAddress(fromEmailAddress), toAddress)
-        message.Subject <-subject
-        message.Body<-msg
-        message.IsBodyHtml <- true
-        smtp.Send(message);
     
     let testEmailSentSuccessfully toEmail=
         printfn "about to send test email to recepient: %s" toEmail
