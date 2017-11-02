@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<root>
+	<config>
+		<email smtpServer="localhost" smtpServerPort="25" fromEmail="" fromEmailPassword="" toEmail="" />
+	</config>
+	<clients>
+	   <client name="sonic">
+			<file extension="js" source="C:\Users\Emiliyan\Desktop\f sharp project\source\js" destination="C:\Users\Emiliyan\Desktop\f sharp project\destination\js" />
+			<file extension="png" source="C:\Users\Emiliyan\Desktop\f sharp project\source\img" destination="C:\Users\Emiliyan\Desktop\f sharp project\destination\img" />
+	   </client>
+	   
+	</clients>
+</root>
