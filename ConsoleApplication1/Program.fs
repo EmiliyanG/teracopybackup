@@ -158,7 +158,7 @@ let processClient teraCopyExe deleteFiles client =
 let processClients teraCopyExe deleteFiles clients =
     clients |> Seq.iter (processClient teraCopyExe deleteFiles)
 
-let emailErrors (errorsList:List<String>) = 
+let emailErrors (errorsList:List<String>) (mailSettings:xEmail) = 
     match errorsList with
     |x when x.Count = 0 -> printfn "no errors to email"
     |xs ->
@@ -175,8 +175,8 @@ let emailErrors (errorsList:List<String>) =
             errors +
             "</table></tbody>"+
             "<br /><p>Please fix this issues.</p>"
-
-        sendEmail "localhost" msg
+        ()
+        sendEmail mailSettings msg |> ignore
     
 
 [<EntryPoint>]
@@ -187,21 +187,19 @@ let main argv =
         | [] -> defaultOptions
         | [x] -> defaultOptions
         | xs -> xs |> parseCommandLine defaultOptions 
+            
 
-    match m.teraCopy with
-    |Some x ->
-        match m.xmlPath with
-        |Some p -> 
-            printfn "teracopy path: %s ; xmlPath: %s" x p
-            match (loadConfigs p) with
-            | Some configs -> 
-                match configs.smtpServer, configs.smtpServerPort with
-                | Some smtp, Some port -> printfn "smtpServer: %s; smtpServerPort %s" smtp port
-                | Some smtp, none -> printfn "no port provided for smtpServer: %s" smtp
-                | _,_ -> printfn "no smtp server provided. Attempting localhost"
-            | None -> printfn "no configs found"
-        | _ -> printfn "no xmlPath provided"
-    | _ -> printfn "no teraCopy path provided"
+    match m.xmlPath with
+    |Some p -> 
+        match (loadConfigs p) with
+        | Some configs -> 
+            match configs.smtpServer, configs.smtpServerPort with
+            | Some smtp, Some port -> 
+                sendEmail configs "test email" |> ignore
+            | Some smtp, none -> printfn "no port provided for smtpServer: %s" smtp
+            | _,_ -> printfn "no smtp server provided. Attempting localhost"
+        | None -> printfn "no configs found"
+    | _ -> printfn "no xmlPath provided"
     
     
 
