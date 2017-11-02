@@ -26,7 +26,10 @@ module ExtractClientsXML =
     let xnAttribute (f:XElement) attr = 
         match f.Attribute(xn attr) with
         | null -> None
-        | x -> Some x.Value
+        | x -> 
+            match x.Value with 
+            | ParseRegex "^[\\s]*$" v -> None
+            | _ -> Some x.Value
     
     let extractEmailConfigsFromTag (email:XElement)=
         {smtpServer= xnAttribute email "smtpServer";
@@ -150,13 +153,14 @@ module Mail =
             smtp.Port <- choose(mailSettings.smtpServerPort,25)
             smtp.DeliveryMethod <- SmtpDeliveryMethod.Network
 
+            
             match mailSettings.fromEmail, mailSettings.fromEmailPassword with
             | Some fe, Some p -> 
-                smtp.EnableSsl <- true 
                 smtp.Credentials <- new NetworkCredential(fe, p)
-                
+                smtp.EnableSsl <- true 
             | _,_ -> smtp.UseDefaultCredentials <- true
             
+
             let message = new MailMessage(new MailAddress(
                                             choose(mailSettings.fromEmail,"backups@mail.com")//from
                                           ), 
@@ -169,6 +173,3 @@ module Mail =
         | _,_-> false
 
         
-    
-    let testEmailSentSuccessfully toEmail=
-        printfn "about to send test email to recepient: %s" toEmail
