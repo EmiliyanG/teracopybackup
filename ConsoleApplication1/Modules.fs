@@ -168,7 +168,14 @@ module Mail =
             message.Subject <-"Backup process finished with errors"
             message.Body<-msg
             message.IsBodyHtml <- true
-            smtp.Send(message);
+            try
+                smtp.Send(message);
+            with 
+                | p -> 
+                printfn "%s sending email to %s" (( System.DateTime.Now.ToString("dd-MM-yyyy HH:mm:ss")) + " > " ) e
+                printfn "%s " (p.ToString())
+                raise p
+
             true
         | _,_-> false
 
