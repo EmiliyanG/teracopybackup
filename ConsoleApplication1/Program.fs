@@ -23,29 +23,46 @@ let getDateModified filePath =
     myFile.LastWriteTime
 
 //get all files within given directory with the specified extension
-let getfilesForDirectory dir ext = 
+let getfilesForDirectory dir ext clientName = 
         try
             Some ((System.IO.Directory.GetFiles(dir, "*."+ ext)) 
                     |> Seq.map (fun x -> {filePath=x; dateCreated=getDateModified x}))
         with 
-            | :? System.IO.FileNotFoundException -> None
-            | :? System.IO.DirectoryNotFoundException -> None
+            | :? System.UnauthorizedAccessException -> 
+                printfn "%s Unable to access directory \"%s\" due to invalid permissions - Unauthorized access." (getTime()) dir
+                errorsList.Add ( getTime()+" processing client: \""+clientName+"\"."+
+                    "\nUnable to access directory \""+dir+"\" due to invalid permissions - Unauthorized access.")
+                None 
+            | :? System.IO.DirectoryNotFoundException ->
+                printfn "%s Directory \"%s\" does not exist." (getTime()) dir
+                errorsList.Add ( getTime()+" processing client: \""+clientName+"\"."+
+                    "\nDirectory \""+dir+"\" does not exist.")
+                None
+            | :? System.IO.IOException -> 
+                printfn "%s A network error has occurred while trying to access files in directory \"%s\"" (getTime()) dir
+                errorsList.Add ( getTime()+" processing client: \""+clientName+"\"."+
+                    "\nA network error has occurred while trying to access files in directory \""+dir+"\"")
+                None
+            | e -> 
+                printfn "%s Unspecified error occured while trying to access files in directory \"%s\"" (getTime()) dir
+                errorsList.Add ( getTime()+" processing client: \""+clientName+"\"."+
+                    "\nUnspecified error occured while trying to access files in directory \""+dir+"\"")
+                None
     
 let deleteFilesInDirectory files = 
     files |> fun x -> System.IO.File.Delete(x.filePath)
         
     
 //get most recently modified file for the specified extension in the given directory 
-let getMostRecentFile dir ext =       
-    match getfilesForDirectory dir ext  with 
+let getMostRecentFile dir ext clientName =       
+    match getfilesForDirectory dir ext clientName  with 
     | Some x -> 
         let allFiles = 
             x |> Seq.sortByDescending(fun x-> x.dateCreated)
         if Seq.isEmpty allFiles then None
         else Some (Seq.head allFiles)
 
-    | None -> printfn "Directory %s does not exist" dir
-              None
+    | None -> None
     
 //copy file from source to destination Directory using TeraCopy
 let copyFile clientName teraCopyExe sourceFile destination= 
@@ -90,12 +107,12 @@ let (|Int|_|) str =
     | _ -> None
 
 
-let deletePreviousFiles deleteFiles dir ext =
+let deletePreviousFiles deleteFiles dir ext clientName =
     match deleteFiles with
     //delete only files older than x hours
     | Some (Int x) -> 
         printfn "%s deleting files older than %i hours for directory \"%s\"" (getTime()) x dir
-        match getfilesForDirectory dir ext with
+        match getfilesForDirectory dir ext clientName with
         | Some files -> 
             files 
             |> Seq.filter (fun y -> 
@@ -106,7 +123,7 @@ let deletePreviousFiles deleteFiles dir ext =
     //delete all files
     | Some "all" -> 
         printfn "%s deleting all files for directory %s" (getTime()) dir
-        match getfilesForDirectory dir ext with
+        match getfilesForDirectory dir ext clientName with
         | Some files -> 
             files |> Seq.iter (fun x -> System.IO.File.Delete(x.filePath))
         | None -> printfn "%s no files with matching extension found" (getTime())
@@ -125,7 +142,7 @@ let processFile clientName teraCopyExe deleteFiles (f:xFile) =
                 Directory.CreateDirectory dest |> ignore
             
 
-        match (getMostRecentFile src ext) with
+        match (getMostRecentFile src ext clientName) with
         |Some x -> let fileName = Path.GetFileName(x.filePath)
                    printfn "%s The most recently modified file in directory \"%s\" is \"%s\" " (getTime()) src fileName
                    
@@ -133,7 +150,7 @@ let processFile clientName teraCopyExe deleteFiles (f:xFile) =
                    match File.Exists (dest ^ "\\" ^ fileName ) with 
                    | true -> printfn "%s Skipping file \"%s\". The file already exists in directory \"%s\"" (getTime()) (Path.GetFileName(x.filePath)) dest
                    | false ->
-                       deletePreviousFiles deleteFiles dest ext
+                       deletePreviousFiles deleteFiles dest ext clientName
                        copyFile clientName teraCopyExe x.filePath dest
 
         |None -> printfn "%s no files found for directory \"%s\"" (getTime()) src
