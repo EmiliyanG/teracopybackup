@@ -78,7 +78,7 @@ let copyFile clientName teraCopyExe sourceFile destination=
         //command line > TeraCopy.exe Copy <sourceFile> <destination folder> /SkipAll
         let myProcess = System.Diagnostics.Process.Start(teraCopyExe,command)
         //wait for 2 hours
-        myProcess.WaitForExit(7200000) |> ignore
+        myProcess.WaitForExit(9000000) |> ignore
         //if the process is still running terminate it
         match myProcess.HasExited with
         | true -> printfn "%s file copied successfully " (getTime()) 
@@ -151,7 +151,18 @@ let processFile clientName teraCopyExe deleteFiles (f:xFile) =
                    | true -> printfn "%s Skipping file \"%s\". The file already exists in directory \"%s\"" (getTime()) (Path.GetFileName(x.filePath)) dest
                    | false ->
                        deletePreviousFiles deleteFiles dest ext clientName
-                       copyFile clientName teraCopyExe x.filePath dest
+                       try
+                            copyFile clientName teraCopyExe x.filePath dest
+                       with
+                            | e -> 
+                                let msg = getTime()+" processing client: "+clientName+ 
+                                                ". Copying process has failed for file \""+x.filePath+"\"."+
+                                                "\nThe process had to be killed. Here is the exception message:"+
+                                                "\n" + e.ToString()
+
+                                errorsList.Add ( msg )
+                                printfn "%s" msg
+
 
         |None -> printfn "%s no files found for directory \"%s\"" (getTime()) src
     | _, _, _-> 
